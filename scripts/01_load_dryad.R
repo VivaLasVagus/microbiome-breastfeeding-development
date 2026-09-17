@@ -374,12 +374,20 @@ genus_mat_top <- genus_mat_top[, colSums(genus_mat_top, na.rm = TRUE) > 0]
 # Remove genera with zero variance across samples
 genus_mat_top <- genus_mat_top[, apply(genus_mat_top, 2, var, na.rm = TRUE) > 0]
 
-install.packages("ComplexHeatmap")
-library(ComplexHeatmap)
+library(tidyverse)
 
-Heatmap(genus_mat_top,
-        name = "abundance",
-        row_title = "Samples",
-        column_title = "Genera",
-        cluster_rows = TRUE,
-        cluster_columns = TRUE)
+heat_long <- genus_mat_top %>%
+  as.data.frame() %>%
+  rownames_to_column("Sample") %>%
+  pivot_longer(-Sample, names_to = "Genus", values_to = "Abundance")
+
+ggplot(heat_long, aes(x = Genus, y = Sample, fill = Abundance)) +
+  geom_tile() +
+  scale_fill_gradient(low = "white", high = "firebrick") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 6)) +
+  labs(title = "Heatmap of Top Genera Across Samples",
+       x = "Genus",
+       y = "Sample")
+
