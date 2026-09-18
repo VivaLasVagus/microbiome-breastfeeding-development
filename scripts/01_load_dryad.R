@@ -109,10 +109,19 @@ pcoa_df <- as.data.frame(pcoa_bc$vectors) %>%
 
 write_csv(pcoa_df, "results/tables/pcoa_coordinates.csv")
 
-ggplot(pcoa_df, aes(Axis.1, Axis.2, color = Participant)) +
+# Ensure Participant is treated as a factor 
+
+# Ensure Participant is a factor inside pcoa_df
+pcoa_df$Participant <- factor(pcoa_df$Participant)
+
+ggplot(pcoa_df, aes(x = Axis.1, y = Axis.2, color = Participant)) +
   geom_point(size = 3) +
   theme_minimal() +
-  labs(title = "PCoA (Bray–Curtis) — Participant")
+  scale_color_discrete() +
+  labs(title = "PCoA (Bray–Curtis) — Participant",
+       x = "Axis 1",
+       y = "Axis 2",
+       color = "Participant")
 
 ggsave("results/figures/pcoa_participant.png", width = 8, height = 6, dpi = 300)
 
