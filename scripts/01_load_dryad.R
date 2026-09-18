@@ -3,6 +3,30 @@
 # Purpose: Load, QC, filter, analyze Dryad shotgun metagenome dataset
 ###############################################
 
+###############################################
+# Reproducibility
+###############################################
+set.seed(2026)
+sessionInfo()
+
+###############################################
+# Directory creation
+###############################################
+dir.create("data/raw", showWarnings = FALSE, recursive = TRUE)
+dir.create("data/processed", showWarnings = FALSE, recursive = TRUE)
+dir.create("results/figures", showWarnings = FALSE, recursive = TRUE)
+dir.create("results/tables", showWarnings = FALSE, recursive = TRUE)
+
+###############################################
+# Parameters
+###############################################
+prevalence_threshold <- 3
+abundance_threshold <- 0.001
+top_genera_n <- 20
+
+###############################################
+# Load libraries
+###############################################
 library(tidyverse)
 library(phyloseq)
 library(vegan)
@@ -14,6 +38,10 @@ library(ggplot2)
 
 taxa_path <- "data/raw/dryad_milk_shotgun/Milk_Metagenome_Taxa_Table.txt"
 meta_path <- "data/raw/dryad_milk_shotgun/Sample_Age_Participant.txt"
+
+# File existence checks
+stopifnot(file.exists(taxa_path))
+stopifnot(file.exists(meta_path))
 
 taxa <- read.delim(taxa_path, check.names = FALSE)
 meta <- read.delim(meta_path, check.names = FALSE)
@@ -35,6 +63,10 @@ rownames(tax_mat) <- taxa$Name
 # 3. Sync metadata to abundance table
 ###############################################
 
+# Sample name consistency check
+setdiff(meta$Sample, colnames(abund_mat))
+setdiff(colnames(abund_mat), meta$Sample)
+
 meta <- meta %>% filter(Sample %in% colnames(abund_mat))
 rownames(meta) <- meta$Sample
 
@@ -55,6 +87,13 @@ ps_dryad <- phyloseq(
 pa_mat <- abund_mat > 0
 richness <- colSums(pa_mat)
 
+richness_df <- data.frame(
+  Sample = names(richness),
+  Observed = richness
+)
+
+write_csv(richness_df, "results/tables/richness.csv")
+
 ps_dryad <- prune_samples(richness > 0, ps_dryad)
 
 ###############################################
@@ -68,10 +107,14 @@ pcoa_df <- as.data.frame(pcoa_bc$vectors) %>%
   rownames_to_column("Sample") %>%
   left_join(meta, by = "Sample")
 
+write_csv(pcoa_df, "results/tables/pcoa_coordinates.csv")
+
 ggplot(pcoa_df, aes(Axis.1, Axis.2, color = Participant)) +
   geom_point(size = 3) +
   theme_minimal() +
   labs(title = "PCoA (Bray–Curtis) — Participant")
+
+ggsave("results/figures/pcoa_participant.png", width = 8, height = 6, dpi = 300)
 
 ###############################################
 # 7. Prevalence + abundance filtering
@@ -79,12 +122,19 @@ ggplot(pcoa_df, aes(Axis.1, Axis.2, color = Participant)) +
 
 abund <- otu_table(ps_dryad)
 prev <- apply(abund, 1, function(x) sum(x > 0))
-keep_taxa <- names(prev[prev >= 3])
 
+prev_df <- data.frame(
+  Taxon = taxa_names(ps_dryad),
+  Prevalence = prev
+)
+
+write_csv(prev_df, "results/tables/prevalence.csv")
+
+keep_taxa <- names(prev[prev >= prevalence_threshold])
 ps_filt <- prune_taxa(keep_taxa, ps_dryad)
 
 mean_abund <- apply(otu_table(ps_filt), 1, mean)
-keep_taxa2 <- names(mean_abund[mean_abund >= 0.001])
+keep_taxa2 <- names(mean_abund[mean_abund >= abundance_threshold])
 
 ps_filt <- prune_taxa(keep_taxa2, ps_filt)
 
@@ -93,6 +143,9 @@ ps_filt <- prune_taxa(keep_taxa2, ps_filt)
 ###############################################
 
 ps_genus <- tax_glom(ps_filt, taxrank = "Genus")
+
+# Save filtered phyloseq object
+saveRDS(ps_genus, "data/processed/ps_genus.rds")
 
 ###############################################
 # 9. Longitudinal top 3 genera per participant
@@ -115,17 +168,19 @@ top3 <- genus_long %>%
 genus_long_top3 <- genus_long %>%
   semi_join(top3, by = c("Participant", "Genus"))
 
-ggplot(genus_long_top3,
-       aes(`Age (months)`, Abundance, color = Genus,
-           group = interaction(Participant, Genus))) +
-  geom_line(alpha = 0.7, size = 1.1) +
+p_top3 <- ggplot(genus_long_top3,
+                 aes(`Age (months)`, Abundance, color = Genus,
+                     group = interaction(Participant, Genus))) +
+  geom_line(alpha = 0.7, linewidth = 1.1) +
   geom_point(size = 2.5) +
   facet_wrap(~ Participant, scales = "free_y") +
   theme_minimal() +
   labs(title = "Longitudinal Trajectories of Top 3 Genera per Participant")
 
+ggsave("results/figures/longitudinal_top3.png", p_top3, width = 12, height = 10, dpi = 300)
+
 ###############################################
-# 10. Heatmap
+# 10. Heatmap 
 ###############################################
 
 genus_mat <- as.matrix(t(otu_table(ps_genus)))
@@ -137,7 +192,7 @@ meta_heat <- meta %>%
 
 top_genera <- colMeans(genus_mat) %>%
   sort(decreasing = TRUE) %>%
-  head(20) %>%
+  head(top_genera_n) %>%
   names()
 
 genus_mat_top <- genus_mat[, top_genera]
@@ -147,10 +202,16 @@ heat_long <- genus_mat_top %>%
   rownames_to_column("Sample") %>%
   pivot_longer(-Sample, names_to = "Genus", values_to = "Abundance")
 
-ggplot(heat_long, aes(Genus, Sample, fill = Abundance)) +
+p_heat <- ggplot(heat_long, aes(Genus, Sample, fill = Abundance)) +
   geom_tile() +
   scale_fill_gradient(low = "white", high = "firebrick") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         axis.text.y = element_text(size = 6)) +
   labs(title = "Heatmap of Top Genera Across Samples")
+
+ggsave("results/figures/heatmap_top_genera.png", p_heat, width = 10, height = 12, dpi = 300)
+
+###############################################
+# End of 01_load_dryad_clean.R
+###############################################
