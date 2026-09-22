@@ -14,11 +14,26 @@ head(fnFs)
 head(fnRs)
 
 ###############################
+# Set up DADA2 package
+###############################
+
+# Install BiocManager if needed
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+
+# Install dada2 if needed
+if (!requireNamespace("dada2", quietly = TRUE)) {
+  BiocManager::install("dada2")
+}
+
+# Load dada2
+library(dada2)
+
+
+###############################
 # Create filtered outputs
 ###############################
-BiocManager::install("dada2")
-
-library(dada2)
 
 # Create filtered directory if it doesn't exist
 if(!dir.exists("data/raw/infant_fastq/filtered")){
@@ -37,4 +52,21 @@ packageVersion("dada2")
 plotQualityProfile(fnFs[1:2])
 plotQualityProfile(fnRs[1:2])
 
+out <- filterAndTrim(fnFs, filtFs,
+                     fnRs, filtRs,
+                     truncLen=c(240,200),
+                     maxN=0,
+                     maxEE=c(2,2),
+                     truncQ=2,
+                     rm.phix=TRUE,
+                     compress=TRUE,
+                     multithread=TRUE)
+
+head(out)
+
+derepFs <- derepFastq(filtFs)
+derepRs <- derepFastq(filtRs)
+
+names(derepFs) <- names(filtFs)
+names(derepRs) <- names(filtRs)
 
